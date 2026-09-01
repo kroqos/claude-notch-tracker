@@ -29,7 +29,7 @@
 	<key>SUPublicEDKey</key>
 	<string>lo4TiR7B75il5RHNSilhgt5uMWm2HaEYKYlTd49YvBQ=</string>
 	<key>SUEnableAutomaticChecks</key>
-	<true/>
+	<false/>
 	<key>SUScheduledCheckInterval</key>
 	<integer>86400</integer>
 </dict>
