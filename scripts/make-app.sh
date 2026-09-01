@@ -26,7 +26,7 @@ fi
 export DEVELOPER_DIR
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP_NAME="Claude Notch"
-DIST="$ROOT/dist"
+DIST="${DIST:-$ROOT/dist}"
 APPDIR="$DIST/$APP_NAME.app"
 
 # Pick a signing identity.
