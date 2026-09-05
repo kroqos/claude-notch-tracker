@@ -21,8 +21,10 @@ struct WeekActivityChart: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text(title).font(.system(size: 10))
-                    .foregroundStyle(.white.opacity(0.5))
+                Text(title.uppercased())
+                    .font(.system(size: 9.5, weight: .medium, design: .monospaced))
+                    .tracking(0.9)
+                    .foregroundStyle(Palette.label)
                 Spacer()
                 if total > 0 {
                     Text(label(total)).font(.system(size: 10, weight: .semibold)).monospacedDigit()
@@ -54,10 +56,8 @@ struct WeekActivityChart: View {
                 }
             }
         }
-        .padding(.horizontal, 12).padding(.vertical, 10)
+        .padding(.vertical, 6)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.white.opacity(0.06))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
     private func bar(_ point: DailyUsagePoint, available: CGFloat) -> some View {
@@ -75,7 +75,8 @@ struct WeekActivityChart: View {
                     .lineLimit(1).fixedSize()
             }
             RoundedRectangle(cornerRadius: 2.5)
-                .fill(.white.opacity(v == 0 ? 0.12 : (isToday(point.date) ? 0.9 : 0.4)))
+                .fill(v == 0 ? Color.white.opacity(0.12)
+                      : isToday(point.date) ? Palette.accent : Color.white.opacity(0.4))
                 .frame(height: barHeight)
         }
         .frame(maxWidth: .infinity)
