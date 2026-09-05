@@ -7,9 +7,9 @@ struct Ring: View {
 
     private var color: Color {
         switch state {
-        case .ok: return Color(red: 0.36, green: 0.79, blue: 0.65)       // teal
-        case .warn: return Color(red: 0.94, green: 0.62, blue: 0.15)     // amber
-        case .critical: return Color(red: 0.89, green: 0.29, blue: 0.29) // red
+        case .ok: return Palette.accent
+        case .warn: return Palette.amber
+        case .critical: return Palette.red
         }
     }
 
