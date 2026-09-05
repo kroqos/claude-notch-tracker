@@ -1,5 +1,8 @@
 import AppKit
 import SwiftUI
+import os
+
+private let hoverLog = Logger(subsystem: "com.claudenotch.app", category: "hover")
 
 /// Borderless floating panel that never becomes key (so it can't steal typing focus).
 final class NotchPanel: NSPanel {
@@ -46,13 +49,88 @@ final class IslandWindow {
     private let panel: NotchPanel
     private let hosting: PassthroughHostingView<IslandRootView>
     private let model: AppModel
-    private let panelHeight: CGFloat = 300
+    private let panelHeight: CGFloat = 420   // room for the open spring's overshoot and the shadow
+
+    private var hoverMonitors: [Any] = []
+    private var hoverInside = false
+    private var collapseTask: Task<Void, Never>?
 
     init(model: AppModel) {
         self.model = model
         hosting = PassthroughHostingView(rootView: IslandRootView(model: model))
         panel = NotchPanel(contentRect: NSRect(x: 0, y: 0, width: 400, height: panelHeight))
         panel.contentView = hosting
+        installHoverProbe()
+    }
+
+    // MARK: hover probe — detection only, logged, nothing visible yet.
+    //
+    // Two monitors on purpose: mouse-moves over the pill's opaque pixels are delivered to THIS
+    // app (local monitor), moves anywhere else go to other apps (global monitor). Each one
+    // answers the same question, "is the pointer inside the pill's footprint", so the source is
+    // logged to learn which path actually fires on this window.
+    private func installHoverProbe() {
+        panel.acceptsMouseMovedEvents = true
+        let local = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved]) { [weak self] event in
+            MainActor.assumeIsolated { self?.probe(source: "local") }
+            return event
+        }
+        let global = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved]) { [weak self] _ in
+            Task { @MainActor in self?.probe(source: "global") }
+        }
+        // A click under the camera lands on no window at all, so it reaches us only this way.
+        // Opens only: while open, the delegate's outside-click monitor already closes on it.
+        let click = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDown) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, !self.model.isExpanded,
+                      self.pillScreenRect.contains(NSEvent.mouseLocation) else { return }
+                hoverLog.log("click via global inside pill: opening")
+                self.model.isExpanded = true
+            }
+        }
+        hoverMonitors = [local, global, click].compactMap { $0 }
+        hoverLog.log("probe installed, monitors: \(self.hoverMonitors.count)")
+    }
+
+    /// Leaving the open card closes it, after a short grace so grazing the edge doesn't slam it,
+    /// and never while a menu is up: opening the context menu reads as an exit.
+    private func scheduleCollapse() {
+        collapseTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(250))
+            while !Task.isCancelled, RunLoop.main.currentMode == .eventTracking {
+                try? await Task.sleep(for: .milliseconds(300))
+            }
+            guard let self, !Task.isCancelled, !self.hoverInside else { return }
+            self.model.isExpanded = false
+        }
+    }
+
+    /// `interactiveRect` is written in window coordinates (that's what hitTest compares against:
+    /// AppKit passes the point in the unflipped parent's space), so it converts straight to
+    /// screen. Routing it through the flipped hosting view lands the zone at the panel's bottom.
+    private var pillScreenRect: NSRect {
+        // Extended past the top of the screen: under the camera the pointer is clamped to the
+        // very top row, and NSRect.contains excludes its own maxY, so a flush rect flickers.
+        var rect = panel.convertToScreen(hosting.interactiveRect)
+        rect.size.height += 40
+        return rect
+    }
+
+    private func probe(source: String) {
+        let inside = pillScreenRect.contains(NSEvent.mouseLocation)
+        guard inside != hoverInside else { return }
+        hoverInside = inside
+        model.isHovering = inside
+        collapseTask?.cancel()
+        collapseTask = nil
+        if inside {
+            if !model.isExpanded { Haptics.thump() }
+        } else if model.isExpanded {
+            scheduleCollapse()
+        }
+        let p = NSEvent.mouseLocation
+        let r = pillScreenRect
+        hoverLog.log("\(inside ? "ENTER" : "EXIT", privacy: .public) via \(source, privacy: .public) at \(Int(p.x)),\(Int(p.y)) pill x\(Int(r.minX))-\(Int(r.maxX)) y\(Int(r.minY))-\(Int(r.maxY))")
     }
 
     /// Resting frame: the full-width strip flush to the top of the notched screen (or main).
@@ -81,8 +159,10 @@ final class IslandWindow {
     func updateInteractiveZone() {
         let closedH = max(model.topInset, 30)
         let dropH = model.expandedDropHeight
-        let zoneW = model.notchWidth + 56 * 2 + 24 + 24    // wing+gap+wing + edge insets + margin
-        let zoneH = (model.isExpanded ? closedH + dropH + 8 : closedH + 6)
+        let zoneW = model.notchWidth + 56 * 2 + 24 + 48    // wing+gap+wing + edge insets + open width + margin
+        let zoneH = model.isExpanded ? closedH + dropH + 8
+                  : model.isHovering ? closedH + model.peekHeight + 8
+                  : closedH + 6
         let w = hosting.bounds.width
         let h = hosting.bounds.height
         hosting.interactiveRect = CGRect(x: (w - zoneW) / 2, y: h - zoneH, width: zoneW, height: zoneH)

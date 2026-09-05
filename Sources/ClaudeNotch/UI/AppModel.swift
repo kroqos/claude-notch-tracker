@@ -15,6 +15,10 @@ final class AppModel {
     /// Projects worked in today with their spend (from the logs), most-recently-active first.
     var sessionsToday: [ProjectUsage] { snapshot.projectsToday }
     var isExpanded = false
+    /// Pointer over the pill (fed by IslandWindow's hover probe). While closed this is the
+    /// "peek" state: the pill widens and drops a one-line summary as the invite to click.
+    var isHovering = false
+    var peekHeight: CGFloat { 26 }
     var isPaused = false
     var claudeRunning = false
     var avatarStyle: AvatarStyle = AvatarStyle.selected
@@ -461,9 +465,9 @@ final class AppModel {
         }
     }
 
-    /// Expanded drop-down height — fixed, since the expanded view is a fixed-size two-page pager.
     /// Read by both the view and the window's click-zone.
-    var expandedDropHeight: CGFloat { 234 }
+    /// Height of the open card below the notch row, measured by the view from its content.
+    var expandedDropHeight: CGFloat = 240
 
     /// Terminal statusline feed (fallback source for session % and context).
     private func readStatusFeed() {

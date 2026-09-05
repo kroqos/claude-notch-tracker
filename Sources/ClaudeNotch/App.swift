@@ -155,6 +155,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func observeExpansion() {
         withObservationTracking {
             _ = model.isExpanded
+            _ = model.isHovering           // the peek line adds to the zone while hovered
             _ = model.expandedDropHeight   // re-sync the click-zone when the session count changes
         } onChange: { [weak self] in
             Task { @MainActor in
