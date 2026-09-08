@@ -32,6 +32,8 @@ struct IslandView: View {
     @State private var hoveredStat: String?
     /// One amber breath on the closed pill's percent when spend pulls ahead of the clock.
     @State private var pulse = false
+    /// Pointer on the peek line's text itself; only then does its reset time type in.
+    @State private var peekHovered = false
 
     private let wing: CGFloat = 56
     private let wingInset: CGFloat = 8    // icon sits this far into its wing, the ring the same from its end
@@ -150,7 +152,7 @@ struct IslandView: View {
             }
         }
         .onChange(of: model.isHovering) { _, inside in
-            if !inside { hovered = nil; hoveredStat = nil }
+            if !inside { hovered = nil; hoveredStat = nil; peekHovered = false }
         }
         .onChange(of: sessionAheadOfClock, initial: true) { _, ahead in
             guard ahead else { return }
@@ -180,23 +182,43 @@ struct IslandView: View {
 
     /// The session % already sits in the wing, so the line carries the window it can't show:
     /// the Fable weekly cap, or the provider's second limit when there is no Fable one.
-    private var peekMetric: (name: String, used: Double)? {
+    private var peekMetric: (name: String, used: Double, metric: UsageLimitMetric)? {
         let snapshot = provider
         let second = snapshot.limits.first { $0.id == "claude-fable" }
             ?? snapshot.limits.dropFirst().first
         guard let second, let used = second.usedFraction else { return nil }
-        return (second.id == "claude-fable" ? "Fable weekly" : second.label, used)
+        return (second.id == "claude-fable" ? "Fable weekly" : second.label, used, second)
     }
     private var peekText: String { peekMetric.map { "\($0.name) \(Fmt.pct($0.used)) " } ?? "" }
 
     private var peekLine: some View {
-        HStack(spacing: 8) {
-            if let metric = peekMetric {
-                label(metric.name)
-                value(Fmt.pct(metric.used), size: 12,
-                      color: trackColor(used: metric.used, elapsed: nil))
+        // The hover target is exactly the text on the line: name and number alone at first,
+        // then, once the reset time has typed in beside them, all of it.
+        HStack(spacing: 0) {
+            if let peek = peekMetric {
+                HStack(spacing: 8) {
+                    label(peek.name)
+                    value(Fmt.pct(peek.used), size: 12,
+                          color: trackColor(used: peek.used, elapsed: elapsedFraction(peek.metric)))
+                }
+                if peek.metric.resetsAt != nil {
+                    // Zero width until hovered, so the pair sits centred and slides left as the
+                    // reset time appears.
+                    HStack(spacing: 8) {
+                        Color.clear.frame(width: 0, height: 1)
+                        sub("·").opacity(0.6)
+                        Reveal(resetText(peek.metric), color: Palette.muted, visible: peekHovered)
+                    }
+                    .frame(width: peekHovered ? nil : 0, alignment: .leading)
+                    .clipped()
+                }
             }
         }
+        .padding(.vertical, 6).padding(.horizontal, 6)
+        .contentShape(Rectangle())
+        .onHover { peekHovered = $0 }
+        .padding(.vertical, -6).padding(.horizontal, -6)
+        .animation(.spring(duration: 0.35, bounce: 0.1), value: peekHovered)
         .frame(width: openWidth, height: peekH)
         .contentShape(Rectangle())
         .onTapGesture { model.isExpanded.toggle() }
