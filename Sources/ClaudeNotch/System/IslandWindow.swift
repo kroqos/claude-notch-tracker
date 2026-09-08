@@ -54,6 +54,8 @@ final class IslandWindow {
     private var hoverMonitors: [Any] = []
     private var hoverInside = false
     private var collapseTask: Task<Void, Never>?
+    private var swipeY: CGFloat = 0
+    private var swipeLatched = false
 
     init(model: AppModel) {
         self.model = model
@@ -88,8 +90,46 @@ final class IslandWindow {
                 self.model.isExpanded = true
             }
         }
-        hoverMonitors = [local, global, click].compactMap { $0 }
+        // Scroll events go to the window under the pointer, key or not: a two-finger swipe over
+        // the pill lands here. Swallowed while the pointer is on the pill, passed on otherwise.
+        let scroll = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+            let handled = MainActor.assumeIsolated { () -> Bool in
+                guard let self, self.hoverInside else { return false }
+                self.handleVerticalSwipe(event)
+                return true
+            }
+            return handled ? nil : event
+        }
+        hoverMonitors = [local, global, click, scroll].compactMap { $0 }
         hoverLog.log("probe installed, monitors: \(self.hoverMonitors.count)")
+    }
+
+    /// Two fingers down over the hovered pill opens the card; two fingers up over the open card
+    /// closes it. One action per gesture (latched until the fingers lift), momentum ignored.
+    private func handleVerticalSwipe(_ event: NSEvent) {
+        guard event.momentumPhase.isEmpty else { return }
+        // Positive means the fingers moved down, whatever the natural-scrolling setting says.
+        let dy = event.isDirectionInvertedFromDevice ? event.scrollingDeltaY : -event.scrollingDeltaY
+        switch event.phase {
+        case .began:
+            swipeY = 0
+            swipeLatched = false
+        case .changed:
+            guard !swipeLatched else { return }
+            swipeY += dy
+            if !model.isExpanded, swipeY > 24 {
+                model.isExpanded = true
+                swipeLatched = true
+            } else if model.isExpanded, swipeY < -24 {
+                model.isExpanded = false
+                swipeLatched = true
+            }
+        case .ended, .cancelled:
+            swipeY = 0
+            swipeLatched = false
+        default:
+            break
+        }
     }
 
     /// Leaving the open card closes it, after a short grace so grazing the edge doesn't slam it,
