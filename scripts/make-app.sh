@@ -76,6 +76,9 @@ SPARKLE_FW="$(find "$ROOT/.build/artifacts" -path "*macos-arm64_x86_64/Sparkle.f
 [ -d "$SPARKLE_FW" ] || { echo "✗ Sparkle.framework not found — run 'swift build' first"; exit 1; }
 ditto "$SPARKLE_FW" "$APPDIR/Contents/Frameworks/Sparkle.framework"
 install_name_tool -add_rpath "@executable_path/../Frameworks" "$APPDIR/Contents/MacOS/ClaudeNotch" 2>/dev/null || true
+# Finder / File Provider xattrs ride along from .build on synced volumes (iCloud Drive);
+# codesign refuses them as "detritus". Harmless elsewhere.
+xattr -cr "$APPDIR"
 
 echo "▸ Signing as: $SIGN_ID"
 FW="$APPDIR/Contents/Frameworks/Sparkle.framework"
@@ -83,13 +86,18 @@ if [ "$SIGN_ID" = "-" ]; then
   codesign --force --sign - "$FW"
   codesign --force --sign - "$APPDIR"
 else
+  # Hardened runtime + timestamp only for a Developer ID identity (notarization needs them).
+  # Under the hardened runtime, library validation rejects frameworks signed by a certificate
+  # macOS doesn't know, so a self-signed local identity would kill the app at launch.
+  HARDEN=()
+  case "$SIGN_ID" in *"Developer ID"*) HARDEN=(-o runtime --timestamp) ;; esac
   # Sign Sparkle inside-out (no --deep), then the app last.
-  codesign -f -o runtime --timestamp -s "$SIGN_ID" "$FW/Versions/B/XPCServices/Installer.xpc"
-  codesign -f -o runtime --timestamp -s "$SIGN_ID" --preserve-metadata=entitlements "$FW/Versions/B/XPCServices/Downloader.xpc"
-  codesign -f -o runtime --timestamp -s "$SIGN_ID" "$FW/Versions/B/Autoupdate"
-  codesign -f -o runtime --timestamp -s "$SIGN_ID" "$FW/Versions/B/Updater.app"
-  codesign -f -o runtime --timestamp -s "$SIGN_ID" "$FW"
-  codesign --force --options runtime --timestamp --sign "$SIGN_ID" "$APPDIR"
+  codesign -f "${HARDEN[@]}" -s "$SIGN_ID" "$FW/Versions/B/XPCServices/Installer.xpc"
+  codesign -f "${HARDEN[@]}" -s "$SIGN_ID" --preserve-metadata=entitlements "$FW/Versions/B/XPCServices/Downloader.xpc"
+  codesign -f "${HARDEN[@]}" -s "$SIGN_ID" "$FW/Versions/B/Autoupdate"
+  codesign -f "${HARDEN[@]}" -s "$SIGN_ID" "$FW/Versions/B/Updater.app"
+  codesign -f "${HARDEN[@]}" -s "$SIGN_ID" "$FW"
+  codesign --force "${HARDEN[@]}" --sign "$SIGN_ID" "$APPDIR"
   codesign --verify --strict --verbose=2 "$APPDIR"
 fi
 
