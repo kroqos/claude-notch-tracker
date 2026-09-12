@@ -1,5 +1,8 @@
 import Foundation
 import SwiftUI
+import os
+
+private let storeLog = Logger(subsystem: "com.claudenotch.app", category: "store")
 
 @MainActor @Observable
 final class AppModel {
@@ -395,6 +398,7 @@ final class AppModel {
         let requests = files.map { (url: $0, offset: parsedOffsets[$0] ?? 0) }
         let results = await loader.parse(requests)
         for r in results {
+            storeLog.log("ingest \(r.url.lastPathComponent, privacy: .public) events=\(r.events.count) reset=\(r.reset) offset=\(r.newOffset)")
             // A fresh/full read (first time, or after truncation) replaces; a tail read appends.
             if r.reset { store.ingest(fileURL: r.url, events: r.events) }
             else { store.append(fileURL: r.url, events: r.events) }
@@ -435,7 +439,13 @@ final class AppModel {
     }
 
     func refresh() {
+        let wasEmpty = snapshot.isEmpty
         snapshot = store.snapshot(now: Date(), titles: titlesBySession)
+        // Trap for the "today shows a dash" case: logged only on the transition, with what the
+        // store knows, so a recurrence can be diagnosed from the unified log.
+        if snapshot.isEmpty != wasEmpty {
+            storeLog.log("today empty=\(self.snapshot.isEmpty) tokensToday=\(self.snapshot.tokensToday) files=\(self.parsedOffsets.count) paused=\(self.isPaused)")
+        }
         readStatusFeed()
         claudeDailySeries = buildClaudeDailySeries()
     }
